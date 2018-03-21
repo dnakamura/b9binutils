@@ -110,7 +110,7 @@ PRIMITIVE file_tell
 ; num args
 ; num regs
 %imacro proc 3
-	%push proc
+	%push function_ctx
 	%defstr __str_func_name %1
 	
 	;Put the marker in the function id table
@@ -127,9 +127,51 @@ PRIMITIVE file_tell
 	__def_%+%1:
 %endmacro
 
+%macro _emit_local_defs 1-*
+		%rep %0
+			%defstr %%local_name %1
+			%strcat %%local_label_str "." %%local_name
+			%deftok %%local_label_tok %%local_label_str
+
+			%%local_label_tok : resb 1
+			%rotate 1
+		%endrep
+%endmacro
+
 %imacro endproc 0
 	BYTECODE(BC_END_SECTION)
+
+	ABSOLUTE 0
+	%ifdef %$arg_names
+		_emit_local_defs %$arg_names
+	%endif
+	%ifdef %$local_names
+		_emit_local_defs %$local_names
+	%endif
+
 	%pop
+%endmacro
+
+%imacro args 1-*
+	%ifnctx function_ctx
+		%error "The ARGS macro can only be used inside a PROC block, before LOCALS"
+	%endif
+
+	%define %$arg_names %{1:-1}
+%endmacro
+
+
+%imacro locals 1-*
+	;if we are in an funtion_ctx (ie inside a PROC block, but no ARGS specified)
+	; then just pretend we saw an empty args statement
+	%ifctx function_ctx
+		%repl func_args_ctx
+	%endif
+
+	%ifnctx func_args_ctx
+		%error "LOCALS can only be specified inside a PROC block"
+	%endif
+	%define %$local_names %{1:-1}
 %endmacro
 
 %imacro endmodule 0
