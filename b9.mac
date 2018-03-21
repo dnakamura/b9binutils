@@ -1,0 +1,158 @@
+%define BC_END_SECTION 0x0
+%define BC_FUNCTION_CALL 0x1
+%define BC_FUNCTION_RETURN 0x2
+%define BC_PRIMITIVE_CALL 0x3
+%define BC_JMP 0x4
+%define BC_DUPLICATE 0x5
+%define BC_DROP 0x6
+%define BC_PUSH_FROM_VAR 0x7
+%define BC_POP_INTO_VAR 0x8
+%define BC_INT_ADD 0x9
+%define BC_INT_SUB 0xa
+%define BC_INT_PUSH_CONSTANT 0xd
+%define BC_INT_NOT 0xe
+%define BC_JMP_EQ 0xf
+%define BC_JMP_NEQ 0x10
+%define BC_JMP_GT 0x11
+%define BC_JMP_GE 0x12
+%define BC_JMP_LT 0x13
+%define BC_JMP_LE 0x14
+%define BC_STR_PUSH_CONSTANT 0x15
+%define BC_STR_JMP_EQ 0x16
+%define BC_STR_JMP_NEQ 0x16
+%define BC_NEW_OBJECT 0x20
+%define BC_PUSH_FROM_OBJECT 0x21
+%define BC_POP_INTO_OBJECT 0x22
+%define BC_CALL_INDIRECT 0x23
+%define BC_SYSTEM_COLLECT 0x24
+
+
+%define BYTECODE(bc, imm) dd (((bc & 0xff) << 24) | (imm & 0x00ffffff))
+%define BYTECODE(bc) BYTECODE(bc,0)
+
+; == Set up misc variables used by our macros ==
+print_string equ 0
+print_number equ 1
+print_stack equ 2
+
+%assign __func_counter 0
+%assign __string_counter 0
+
+%macro __output_string 1
+	%strlen charcnt %1
+	dd charcnt
+	db %1
+	%undef charcnt
+%endmacro
+
+%imacro initmodule 0
+	db 'b9module'
+%endmacro
+
+%imacro beginstrings 0
+	dd 2
+	dd __final_string_count
+%endmacro
+
+%imacro endstrings 0
+	__final_string_count equ __string_counter
+%endmacro 
+
+%imacro beginfuncs 0
+	;%push funcs
+	dd 1
+	dd __final_function_count
+%endmacro
+
+%imacro endfuncs 0
+	__final_function_count equ  __func_counter
+%endmacro 
+
+
+%imacro str 2
+	%1 equ __string_counter
+	%assign __string_counter __string_counter+1
+	__output_string %2
+%endmacro
+
+; function header:
+; name
+; index
+; num args
+; num regs
+%imacro proc 3
+	%1 equ __func_counter
+	%assign __func_counter __func_counter+1
+	%push proc
+	%defstr __str_func_name %1
+	
+	__output_string __str_func_name
+	
+	dd __func_counter-1, %2, %3
+	__%+%1:
+%endmacro
+
+%imacro endproc 0
+	%pop
+	BYTECODE(BC_END_SECTION)
+%endmacro
+
+;=========================================================================
+; Instruction macros
+
+%imacro call 1
+	BYTECODE(BC_FUNCTION_CALL, %1)
+%endmacro
+
+%imacro call_prim 1
+	BYTECODE(BC_PRIMITIVE_CALL, %1)
+%endmacro
+
+%imacro dup 0
+	BYTECODE(BC_DUPLICATE)
+%endmacro
+
+%imacro drop 0
+	BYTECODE(BC_DROP)
+%endmacro
+
+%imacro push 1
+	BYTECODE(BC_INT_PUSH_CONSTANT, %1)
+%endmacro
+
+%imacro push_str 1
+	BYTECODE(BC_STR_PUSH_CONSTANT, %1)
+%endmacro
+
+%imacro ret 0 
+	BYTECODE(BC_FUNCTION_RETURN)
+%endmacro
+
+; == Various jump instructions
+%imacro jmp 1
+	BYTECODE(BC_JMP, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jeq 1
+	BYTECODE(BC_JMP_EQ, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jne 1
+	BYTECODE(BC_JMP_NEQ, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jgt 1
+	BYTECODE(BC_JMP_GT, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jge 1
+	BYTECODE(BC_JMP_GE, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jlt 1
+	BYTECODE(BC_JMP_LT, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jle 1
+	BYTECODE(BC_JMP_LE, (((%1)-$)/4 - 1))
+%endmacro

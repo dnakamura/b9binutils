@@ -1,0 +1,4 @@
+#!/bin/sh
+
+as_dir=$(dirname $0)
+nasm -felf -p "$as_dir/b9_elf.mac" "$@"

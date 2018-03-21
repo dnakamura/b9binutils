@@ -1,0 +1,5 @@
+#!/bin/sh
+
+as_dir=$(dirname $0)
+
+ld -T "$as_dir/b9.ld"  "$as_dir/stdlib.o" "$@"

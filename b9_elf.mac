@@ -1,0 +1,266 @@
+%define BC_END_SECTION 0x0
+%define BC_FUNCTION_CALL 0x1
+%define BC_FUNCTION_RETURN 0x2
+%define BC_PRIMITIVE_CALL 0x3
+%define BC_JMP 0x4
+%define BC_DUPLICATE 0x5
+%define BC_DROP 0x6
+%define BC_PUSH_FROM_VAR 0x7
+%define BC_POP_INTO_VAR 0x8
+%define BC_INT_ADD 0x9
+%define BC_INT_SUB 0xa
+
+%define BC_INT_MUL 0xb
+%define BC_INT_PUSH_CONSTANT 0xd
+%define BC_INT_NOT 0xe
+%define BC_JMP_EQ 0xf
+%define BC_JMP_NEQ 0x10
+%define BC_JMP_GT 0x11
+%define BC_JMP_GE 0x12
+%define BC_JMP_LT 0x13
+%define BC_JMP_LE 0x14
+%define BC_STR_PUSH_CONSTANT 0x15
+%define BC_STR_JMP_EQ 0x16
+%define BC_STR_JMP_NEQ 0x16
+%define BC_NEW_OBJECT 0x20
+%define BC_PUSH_FROM_OBJECT 0x21
+%define BC_POP_INTO_OBJECT 0x22
+%define BC_CALL_INDIRECT 0x23
+%define BC_SYSTEM_COLLECT 0x24
+
+
+%macro BYTECODE_RELOC 2
+	;Note this is LE specific
+	;%1 = bc
+	;%2 = symbol
+	dw %2
+	db 0
+	db %1
+%endmacro 
+%macro BYTECODE_RELOC_CALL 1
+	;Note this is LE specific
+	;%1 = bc
+	;%2 = symbol
+	dd %1
+%endmacro 
+
+%define BYTECODE(bc, imm) dd (((bc & 0xff) << 24) | (imm & 0x00ffffff))
+%define BYTECODE(bc) BYTECODE(bc,0)
+
+
+
+; Setup our section definitions and headers
+
+section .funcs align=1
+
+section .strings align=1
+
+;Magic function for making up indexes
+section .id_funcs nobits align=1
+section .id_strings nobits align=1
+;section .id_primitives nobits align=1
+
+; return to the functions section
+section .funcs
+
+
+; == Set up misc variables used by our macros ==
+
+
+%macro __output_string 1
+	%strlen charcnt %1
+	dd charcnt
+	db %1
+	%undef charcnt
+%endmacro
+
+%imacro initmodule 0
+	db 'b9module'
+%endmacro
+
+
+%imacro primitive 1
+	%define __is_prim_%1 1
+	%ifdef B9_STANDALONE
+		section .id_primitives
+		%1: resb 1
+		section .funcs
+	%else 
+		extern %1
+	%endif
+%endmacro
+
+
+PRIMITIVE print_string
+PRIMITIVE print_number
+PRIMITIVE print_stack
+PRIMITIVE file_tell
+
+%imacro str 2
+	section .id_strings
+	%1: resb 1
+	section .strings
+	__output_string %2
+	section .funcs
+%endmacro
+
+; function header:
+; name
+; index
+; num args
+; num regs
+%imacro proc 3
+	%push proc
+	%defstr __str_func_name %1
+	
+	;Put the marker in the function id table
+	section .id_funcs
+	GLOBAL %1
+	%1: resb 1
+	
+
+	;actually output the function definition header
+	section .funcs
+	__output_string __str_func_name
+	
+	dd %1, %2, %3
+	__def_%+%1:
+%endmacro
+
+%imacro endproc 0
+	BYTECODE(BC_END_SECTION)
+	%pop
+%endmacro
+
+%imacro endmodule 0
+
+%endmacro
+
+;=========================================================================
+; Instruction macros
+
+%imacro call_prim 1
+	;BYTECODE(BC_PRIMITIVE_CALL, %1)
+	BYTECODE_RELOC BC_PRIMITIVE_CALL, %1
+%endmacro
+
+%imacro call 1
+	%ifdef __is_prim_%1
+	%warning calling primitive
+		call_prim %1
+	%else
+		;BYTECODE(BC_FUNCTION_CALL, %1)
+		BYTECODE_RELOC BC_FUNCTION_CALL,%1
+	%endif
+%endmacro
+
+
+%imacro callv 1
+	call %1
+	drop
+%endmacro
+
+%imacro dup 0
+	BYTECODE(BC_DUPLICATE)
+%endmacro
+
+%imacro drop 0
+	BYTECODE(BC_DROP)
+%endmacro
+
+%imacro push_str 1
+	;BYTECODE(BC_STR_PUSH_CONSTANT, (%1 - __strings_start_addr))
+	BYTECODE_RELOC BC_STR_PUSH_CONSTANT, %1
+%endmacro
+
+%imacro push_int 1
+	BYTECODE(BC_INT_PUSH_CONSTANT, %1)
+%endmacro
+%imacro push 1
+	%ifstr %1
+		%error pushstr
+		str %%string_id, %1
+		push_str %%string_id
+	%else
+		push_int %1 
+	%endif
+%endmacro
+
+
+
+%imacro ret 0 
+	BYTECODE(BC_FUNCTION_RETURN)
+%endmacro
+
+%define PC_OFFSET(lbl) ((((lbl) - $$) - ($ - $$)) / 4)
+; == Various jump instructions
+%imacro jmp 1
+		BYTECODE(BC_JMP, (PC_OFFSET(%1) - 1))
+%endmacro
+
+
+%imacro jeq 1
+	BYTECODE(BC_JMP_EQ, (PC_OFFSET(%1) - 1))
+%endmacro
+%define je jeq
+
+%imacro jne 1
+	BYTECODE(BC_JMP_NEQ, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jgt 1
+	BYTECODE(BC_JMP_GT, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jge 1
+	BYTECODE(BC_JMP_GE, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jlt 1
+	BYTECODE(BC_JMP_LT, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro jle 1
+	BYTECODE(BC_JMP_LE, (((%1)-$)/4 - 1))
+%endmacro
+
+%imacro store 1
+	BYTECODE(BC_POP_INTO_VAR, %1)
+%endmacro
+
+%imacro store_in 1
+	BYTECODE(BC_POP_INTO_OBJECT, %1)
+%endmacro
+
+%imacro store_inx 0
+	BYTECODE(0x26)
+%endmacro
+
+%macro load 1
+	BYTECODE(BC_PUSH_FROM_VAR, %1)
+%endmacro
+
+%macro load_from 1
+	BYTECODE(BC_PUSH_FROM_OBJECT, %1)
+%endmacro
+
+%macro load_fromx 0
+	BYTECODE(0x25)
+%endmacro
+
+%macro mul 0
+	BYTECODE(BC_INT_MUL)
+%endmacro
+
+%macro add 0
+	BYTECODE(BC_INT_ADD)
+%endmacro
+
+%macro sub 0
+	BYTECODE(BC_INT_SUB)
+%endmacro
+
+
+%macro new 0
+	BYTECODE(BC_NEW_OBJECT)
+%endmacro
